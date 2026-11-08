@@ -1,0 +1,109 @@
+cabal-version: 3.0
+name:          tox
+synopsis:      Tox client abstraction, on top of toxcore and toxsync
+version:       0.0.1
+stability:     experimental
+license:       GPL-3.0-only
+license-file:  LICENSE
+build-type:    Simple
+author:        iphy
+maintainer:    iphy
+copyright:     Copyright (c) 2026 The TokTok Team
+homepage:      https://toktok.ltd
+category:      Network
+description:
+  The parts every Tox client needs: contacts and their chats, groups, calls,
+  file transfers, avatars and linked devices, with the formats and settings
+  around them.
+
+source-repository head
+  type:     git
+  location: https://github.com/TokTok/hs-tox
+
+library
+  default-language: Haskell2010
+  hs-source-dirs:   src
+  ghc-options:      -Wall
+  exposed-modules:
+    Tox.Client
+    Tox.Client.Avatars
+    Tox.Client.Blobs
+    Tox.Client.Changes
+    Tox.Client.Debug
+    Tox.Client.Export
+    Tox.Client.Files
+    Tox.Client.Formats
+    Tox.Client.Identicon
+    Tox.Client.Import
+    Tox.Client.Linked
+    Tox.Client.Locations
+    Tox.Client.Messages
+    Tox.Client.Network
+    Tox.Client.Nodes
+    Tox.Client.Outgoing
+    Tox.Client.Pictures
+    Tox.Client.Png
+    Tox.Client.Qoi
+    Tox.Client.QrCode
+    Tox.Client.Relays
+    Tox.Client.Types
+    Tox.Client.Update
+  build-depends:
+      base               <5
+    , base16-bytestring  >=1      && <1.1
+    , binary             <0.9
+    , bytestring         <0.13
+    , containers         <0.8
+    , cryptohash-sha256  <0.12
+    , directory          <1.4
+    , filepath           <1.6
+    , monad-logger       <0.4
+    , qrcode-core        <0.10
+    , saltine            >=0.2    && <0.3
+    , text               <2.2
+    , time               <2
+    , toxav              >=0.0.1  && <0.0.2
+    , toxcore            >=0.2.12 && <0.3
+    , toxsync            >=0.0.1  && <0.0.2
+    , unix               <2.9
+    , vector             <0.14
+
+test-suite testsuite
+  default-language:   Haskell2010
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+  ghc-options:        -Wall
+  main-is:            testsuite.hs
+  other-modules:
+    Tox.Client.ChangesSpec
+    Tox.Client.DebugSpec
+    Tox.Client.ExportSpec
+    Tox.Client.FilesSpec
+    Tox.Client.FormatsSpec
+    Tox.Client.IdenticonSpec
+    Tox.Client.LinkedSpec
+    Tox.Client.LocationsSpec
+    Tox.Client.MessagesSpec
+    Tox.Client.NodesSpec
+    Tox.Client.QoiSpec
+    Tox.Client.RelaysSpec
+    Tox.Client.Sample
+    Tox.Client.UpdateSpec
+  build-depends:
+      base               <5
+    , base16-bytestring
+    , binary
+    , bytestring
+    , containers
+    , cryptohash-sha256
+    , directory
+    , filepath
+    , hspec
+    , QuickCheck
+    , saltine
+    , text
+    , time
+    , tox
+    , toxcore
+    , toxsync
+    , vector
