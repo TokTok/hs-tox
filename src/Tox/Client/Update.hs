@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StrictData        #-}
 -- | How events change a client, and the commands for Tox.
 module Tox.Client.Update
   ( Event (..)

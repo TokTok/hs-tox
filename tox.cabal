@@ -48,6 +48,7 @@ library
     Tox.Client.Relays
     Tox.Client.Types
     Tox.Client.Update
+  other-modules:    Tox.Client.Nodes.BuiltIn
   build-depends:
       base               <5
     , base16-bytestring  >=1      && <1.1
@@ -57,7 +58,6 @@ library
     , cryptohash-sha256  <0.12
     , directory          <1.4
     , filepath           <1.6
-    , monad-logger       <0.4
     , qrcode-core        <0.10
     , saltine            >=0.2    && <0.3
     , text               <2.2
@@ -74,6 +74,7 @@ test-suite testsuite
   hs-source-dirs:     test
   ghc-options:        -Wall
   main-is:            testsuite.hs
+  build-tool-depends: hspec-discover:hspec-discover
   other-modules:
     Tox.Client.ChangesSpec
     Tox.Client.DebugSpec
@@ -104,6 +105,7 @@ test-suite testsuite
     , text
     , time
     , tox
+    , toxav
     , toxcore
     , toxsync
     , vector

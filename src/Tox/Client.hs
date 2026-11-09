@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StrictData        #-}
 -- | State of one profile.
 module Tox.Client
   ( Client (..)

@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StrictData        #-}
 -- | What a Tox client keeps: contacts and their messages, groups, invites,
 -- calls, the profile and settings.
 module Tox.Client.Types

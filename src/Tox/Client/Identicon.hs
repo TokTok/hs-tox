@@ -1,3 +1,4 @@
+{-# LANGUAGE StrictData #-}
 -- | Identicons as other Tox clients draw them, so a contact looks the same
 -- everywhere: blocks of 2 colours from the key's SHA-256, mirrored.
 module Tox.Client.Identicon

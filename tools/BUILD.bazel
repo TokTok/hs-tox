@@ -1,0 +1,34 @@
+load("@rules_haskell//haskell:defs.bzl", "haskell_binary")
+
+haskell_binary(
+    name = "echobot",
+    srcs = ["echobot.hs"],
+    ghcopts = [
+        "-j4",
+        "-threaded",
+    ],
+    tags = [
+        "haskell",
+        "no-cross",
+    ],
+    deps = [
+        "//hs-tox",
+        "//hs-toxav",
+        "//hs-toxcore:tox-application",
+        "//hs-toxcore:tox-core",
+        "//hs-toxcore:tox-crypto",
+        "//hs-toxcore:tox-session",
+        "//third_party/haskell:base",
+        "//third_party/haskell:base16-bytestring",
+        "//third_party/haskell:bytestring",
+        "//third_party/haskell:containers",
+        "//third_party/haskell:directory",
+        "//third_party/haskell:filepath",
+        "//third_party/haskell:http-client",
+        "//third_party/haskell:http-client-tls",
+        "//third_party/haskell:optparse-applicative",
+        "//third_party/haskell:saltine",
+        "//third_party/haskell:text",
+        "//third_party/haskell:time",
+    ],
+)

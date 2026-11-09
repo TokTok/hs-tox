@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StrictData        #-}
 -- | Account from another client's .tox file: keys, profile, friends and
 -- pending requests. We leave out conferences and groups.
 module Tox.Client.Import

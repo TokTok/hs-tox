@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StrictData        #-}
 -- | Message formats some clients use. The core only knows the bytes Tox
 -- carried, and formats read them for display. Nothing outside this module
 -- names a format.

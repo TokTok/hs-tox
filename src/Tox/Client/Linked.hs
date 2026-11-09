@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StrictData        #-}
 -- | Profile whose account runs on another device (its home). We keep a
 -- replica in sync over Tox. Screens are derived from its events, and what
 -- the user does becomes events.

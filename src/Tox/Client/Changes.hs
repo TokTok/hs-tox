@@ -1,3 +1,4 @@
+{-# LANGUAGE StrictData #-}
 -- | What changed between two states of a client, for the app to store.
 module Tox.Client.Changes
   ( Change (..)
@@ -34,13 +35,13 @@ data Change
     -- ^ PNG by its SHA-256.
   | AvatarDropped BS.ByteString
   | ContactChanged ContactId Bool Contact
-    -- ^ False if deleted with its chat kept. Its messages change apart.
+    -- ^ False if deleted with its chat kept. Its messages change separately.
   | ContactDeleted ContactId
     -- ^ With its chat.
   | MessageChanged ContactId Message
     -- ^ New ones in the order of their chat.
   | GroupChanged GroupId Group (Maybe Text)
-    -- ^ With its draft. Its entries change apart.
+    -- ^ With its draft. Its entries change separately.
   | GroupDeleted GroupId
   | EntryChanged GroupId GroupEntry
   | InviteChanged ContactId GroupId Invite
@@ -101,8 +102,8 @@ changes old new =
       [InviteChanged cid gid invite | ((cid, gid), invite) <- Map.toList (clientInvites new), Map.lookup (cid, gid) (clientInvites old) /= Just invite]
       ++ [InviteDeleted cid gid | (cid, gid) <- Map.keys (Map.difference (clientInvites old) (clientInvites new))]
 
--- | From the first we had on (those before it came from the store), or all
--- if we had none of them.
+-- | From the first we already had on (any before it came from the store),
+-- or all if we had none.
 since :: Ord k => (a -> k) -> Map.Map k a -> [a] -> [a]
 since key had now = case break ((`Map.member` had) . key) now of
   (_, [])   -> now

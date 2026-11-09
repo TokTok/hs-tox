@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StrictData        #-}
 -- | Tox behind a client: turns its events into client events, and runs the
 -- client's commands.
 module Tox.Client.Network
@@ -10,37 +11,37 @@ module Tox.Client.Network
   , looping
   , stop
   , perform
-  , Media (..)
-  , onMedia
-  , useNodes
+  , pullAudio
+  , dueVideo
   , sendAudio
   , sendVideo
   , measure
   , constructor
   ) where
 
-import           Control.Concurrent        (MVar, ThreadId, forkIO, modifyMVar_,
-                                            newMVar, threadDelay)
+import           Control.Concurrent        (MVar, ThreadId, forkIO, modifyMVar,
+                                            modifyMVar_, newMVar, readMVar,
+                                            threadDelay)
 import           Control.Exception         (IOException,
                                             SomeAsyncException (..),
                                             displayException, fromException,
                                             try)
-import           Control.Monad             (forM_, unless, void, when)
-import           Control.Monad.Logger      (LogLevel (..))
+import           Control.Monad             (forM, forM_, unless, void, when)
 import qualified Crypto.Saltine.Class      as Sodium
 import           Crypto.Saltine.Core.Utils (randomByteString)
 import qualified Data.ByteString           as BS
 import qualified Data.ByteString.Base16    as Base16
 import           Data.Char                 (isDigit)
 import           Data.IORef                (IORef, modifyIORef', newIORef,
-                                            readIORef, writeIORef)
+                                            readIORef)
 import           Data.List                 (find, sortOn)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
-import           Data.Maybe                (isJust, isNothing)
+import           Data.Maybe                (fromMaybe, isJust, isNothing)
 import qualified Data.Text                 as Text
 import qualified Data.Text.Encoding        as Text
 import           Data.Time                 (getCurrentTime)
+import qualified Data.Vector.Storable      as V
 import           Data.Word                 (Word32, Word8)
 import           GHC.Conc                  (labelThread, myThreadId)
 import           System.Directory          (removeFile)
@@ -49,18 +50,21 @@ import qualified Tox.Application.Tox       as Tox
 import qualified Tox.AV                    as AV
 import           Tox.AV                    (BitRates (..), Pcm, Picture)
 import qualified Tox.AV.MSI                as MSI
+import qualified Tox.AV.Playout            as Playout
+import           Tox.AV.Playout            (Playout)
 import qualified Tox.Client.Avatars        as Avatars
 import qualified Tox.Client.Blobs          as Blobs
 import qualified Tox.Client.Debug          as Debug
 import qualified Tox.Client.Files          as Files
 import           Tox.Client.Messages       (parts)
-import           Tox.Client.Nodes          (Node (..), usable)
+import           Tox.Client.Nodes          (Node (..), bootstrapFrom, usable)
 import qualified Tox.Client.Outgoing       as Outgoing
 import           Tox.Client.Types
 import           Tox.Client.Update         (Command (..), Event (..),
                                             Refusal (..))
 import qualified Tox.Core.Lanes            as Lanes
 import           Tox.Core.Lanes            (Lanes)
+import           Tox.Core.Log              (LogLevel (..))
 import           Tox.Crypto.Core.Key       (PublicKey)
 import qualified Tox.Sync.Frame            as Frame
 
@@ -73,8 +77,8 @@ data Network = Network
   , networkReceived    :: FilePath
     -- ^ Directory for friends' files.
   , networkAV          :: AV.ToxAV PublicKey
-  , networkMedia       :: IORef Media
-  , networkNodes       :: IORef [Node]
+  , networkPlayouts    :: MVar (Map PublicKey Playout)
+  , networkNodes       :: [Node]
   , networkProxied     :: Bool
     -- ^ With a proxy, we mustn't look up host names outside it.
   , networkGroups      :: IORef (Map Word32 GroupId)
@@ -87,12 +91,6 @@ data Network = Network
   , networkLanes       :: Lanes
   , networkLog         :: Text.Text -> IO ()
     -- ^ For warnings and failures.
-  }
-
-data Media = Media
-  { playAudio :: Int -> Int -> Pcm -> IO ()
-    -- ^ Sampling rate, channels and samples.
-  , showVideo :: Picture -> IO ()
   }
 
 -- | Kbit/s we send in calls.
@@ -132,12 +130,11 @@ start logs lanes known device received known' = Tox.new options >>= \case
       { AV.sendLossless = Tox.friendQueueLosslessPacket tox
       , AV.sendLossy = Tox.friendQueueLossyPacket tox
       }
-    media <- newIORef (Media (\_ _ _ -> pure ()) (const (pure ())))
-    nodes <- newIORef known'
+    playouts <- newMVar Map.empty
     groups <- newIORef Map.empty
     conferences <- newIORef Map.empty
     sync <- newMVar Map.empty
-    pure (Right (Network tox outgoing files avatars blobs received av media nodes (isJust (settingProxy device)) groups conferences sync lanes logs))
+    pure (Right (Network tox outgoing files avatars blobs received av playouts known' (isJust (settingProxy device)) groups conferences sync lanes logs))
   where
     options = Tox.defaultOptions
       { Tox.optSaveData = maybe Tox.NoSaveData Tox.SecretKey
@@ -155,13 +152,9 @@ start logs lanes known device received known' = Tox.new options >>= \case
 -- nodes that are down can't take all the places.
 bootstrap :: Network -> IO ()
 bootstrap network = do
-  nodes <- readIORef (networkNodes network)
-  chosen <- take bootstrapCount . usable . filter reachable <$> shuffled nodes
-  forM_ chosen $ \n -> forM_ (Sodium.decode (nodeKey n)) $ \pk -> do
-    forM_ (nodeTcpPort n) $ \tcp -> Tox.resolveNode (nodeHost n) tcp pk >>= mapM_ (Tox.addTcpRelay tox)
-    Tox.resolveNode (nodeHost n) (nodePort n) pk >>= mapM_ (Tox.bootstrap tox)
+  chosen <- take bootstrapCount . usable . filter reachable <$> shuffled (networkNodes network)
+  mapM_ (bootstrapFrom (networkTox network)) chosen
   where
-    tox = networkTox network
     -- With a proxy, only nodes given by IP address (Tox would look up names
     -- outside the proxy).
     reachable n = not (networkProxied network) || isAddress (nodeHost n)
@@ -170,12 +163,6 @@ bootstrap network = do
     dotted s = case break (== '.') s of
       (part, _ : rest) -> part : dotted rest
       (part, [])       -> [part]
-
-useNodes :: Network -> [Node] -> IO ()
-useNodes network nodes = do
-  writeIORef (networkNodes network) nodes
-  status <- Tox.selfConnectionStatus (networkTox network)
-  when (status == Tox.NotConnected) $ bootstrap network
 
 -- | The loops end with Tox.
 stop :: Network -> IO ()
@@ -223,6 +210,11 @@ measure network = do
   sizes <- Tox.sizes (networkTox network)
   counted <- Tox.traffic (networkTox network)
   calls <- AV.waitingEvents (networkAV network)
+  playouts <- readMVar (networkPlayouts network)
+  inCall <- forM (Map.toList playouts) $ \(pk, p) ->
+    Debug.Call (Text.take 8 (Text.decodeUtf8 (Base16.encode (Sodium.encode pk)))) (Playout.stats p)
+      <$> AV.videoStats (networkAV network) pk
+      <*> (fmap Text.pack <$> AV.videoEncoderName (networkAV network) pk)
   pure Debug.Report
     { Debug.reportRuntime = rt
     , Debug.reportThreads = ts
@@ -230,6 +222,7 @@ measure network = do
     , Debug.reportTox     = loop
     , Debug.reportSizes   = sizes ++ [Tox.Size "Call events not taken yet" calls Nothing]
     , Debug.reportTraffic = counted
+    , Debug.reportCalls   = inCall
     }
 
 queueSync :: Network -> PublicKey -> [BS.ByteString] -> IO ()
@@ -411,7 +404,7 @@ translate network = \case
     saved = savedGroup tox
     chatIdLength = 32
 
--- | Media goes straight to the player, not the model.
+-- | Media goes to the call's playout, not the model.
 called :: Network -> AV.Event PublicKey -> IO [Event]
 called network = \case
   AV.Invited pk caps -> do
@@ -422,17 +415,16 @@ called network = \case
     pure [CallPeer (contactId pk) now (AV.sendsVideo caps)]
   AV.Ended pk end -> do
     networkLog network ("Call ended: " <> Text.pack (show end))
+    modifyMVar_ (networkPlayouts network) (pure . Map.delete pk)
     now <- getCurrentTime
     -- Both ends called at once (either end may notice).
     pure $ if end `elem` [AV.Failed MSI.InvalidState, AV.PeerFailed MSI.InvalidState]
       then [CallGlared (contactId pk) now]
       else [CallEnded (contactId pk) now]
-  AV.AudioReceived _ _ (AV.AudioFrame rate channels pcm) -> do
-    media <- readIORef (networkMedia network)
-    [] <$ playAudio media rate channels pcm
-  AV.VideoReceived _ _ picture -> do
-    media <- readIORef (networkMedia network)
-    [] <$ showVideo media picture
+  AV.AudioReceived pk number captured frame -> [] <$ playout pk (Playout.audio <$> AV.clock <*> pure number <*> pure captured <*> pure frame)
+  AV.VideoReceived pk captured picture -> [] <$ playout pk (Playout.picture <$> AV.clock <*> pure captured <*> pure picture)
+  where
+    playout pk came = came >>= \add -> modifyMVar_ (networkPlayouts network) (pure . Map.alter (Just . add . fromMaybe Playout.empty) pk)
 
 perform :: Network -> Command -> IO [Event]
 perform network = \case
@@ -675,12 +667,29 @@ moderation = \case
 savedConference :: Tox.Tox -> Tox.ConferenceNumber -> GroupId -> IO [Event]
 savedConference tox g gid = maybe [] (pure . GroupSaved gid) <$> Tox.conferenceSave tox g
 
-onMedia :: Network -> Media -> IO ()
-onMedia network = writeIORef (networkMedia network)
+-- | The next 10 ms of a call's audio, to be heard some ms from now.
+pullAudio :: Network -> ContactId -> Int -> IO (Maybe AV.AudioFrame)
+pullAudio network cid ahead = playing network cid $ \now -> Playout.pull now (AV.later ahead now)
+
+-- | The picture of a call to show, seen until some ms from now, if a new one
+-- is due.
+dueVideo :: Network -> ContactId -> Int -> IO (Maybe Picture)
+dueVideo network cid ahead = playing network cid $ \now -> Playout.pictureAt now (AV.later ahead now)
+
+playing :: Network -> ContactId -> (AV.MediaTime -> Playout -> (Maybe (AV.MediaTime, a), Playout)) -> IO (Maybe a)
+playing network cid step = case contactKey cid of
+  Nothing -> pure Nothing
+  Just pk -> AV.clock >>= \now -> modifyMVar (networkPlayouts network) $ \playouts ->
+    pure $ case Map.lookup pk playouts of
+      Nothing -> (playouts, Nothing)
+      Just p  -> let (due, p') = step now p in (Map.insert pk p' playouts, snd <$> due)
 
 sendAudio :: Network -> ContactId -> Int -> Int -> Pcm -> IO ()
-sendAudio network cid rate channels pcm = forM_ (contactKey cid) $ \pk -> AV.clock >>= \captured ->
+sendAudio network cid rate channels pcm = forM_ (contactKey cid) $ \pk -> recorded <$> AV.clock >>= \captured ->
   void . Lanes.timed (networkLanes network) "Call audio out" $ AV.sendAudio (networkAV network) pk captured (AV.AudioFrame rate channels pcm)
+  where
+    -- Its first sample, as the frame has just been recorded.
+    recorded = AV.later (negate (V.length pcm `div` channels * 1000 `div` rate))
 
 sendVideo :: Network -> ContactId -> Picture -> IO ()
 sendVideo network cid picture = forM_ (contactKey cid) $ \pk -> AV.clock >>= \captured ->
